@@ -1,7 +1,7 @@
 [project]
 name = "asr"
 version = "0.1.0"
-description = "Fine-tuning and evaluating Wav2Vec2.0 for CTC speech recognition on LibriSpeech"
+description = "Fine-tuning Wav2Vec2.0 for CTC speech recognition on radio-channel ATC audio, validated against LibriSpeech"
 readme = "README.md"
 authors = [
     { name = "James McFadden", email = "65996172+JamesMcFadden@users.noreply.github.com" }

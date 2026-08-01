@@ -1,6 +1,18 @@
 # CLAUDE.md
 
-Wav2Vec2.0 CTC speech recognition on LibriSpeech.
+Wav2Vec2.0 CTC speech recognition, fine-tuned on ATC radio-channel audio and
+validated against LibriSpeech.
+
+## Purpose and framing
+
+The end goal of this project is fine-tuning wav2vec2 on radio-channel ATC
+audio (UWB-ATCC + ATCOSIM), not just evaluating a pretrained checkpoint on
+LibriSpeech — LibriSpeech is the pipeline-validation baseline, ATC is the
+point. This recreates the problem shape of a defense-sector ASR project from
+a prior internship, using public substitute data since the original data and
+code cannot be shared. Never describe specifics of that original project
+(employer, scope, findings) in code, comments, commits, or docs — only the
+generic framing above.
 
 ## Task
 
@@ -63,3 +75,13 @@ These are all things that have already cost time here:
 - Overfit 8 samples to ~100% train accuracy first. CTC emits empty strings for
   the first few hundred steps — that is expected, not a bug. Still blank after
   ~500 steps on 8 samples means the LR or blank-token config is wrong.
+- Training data: UWB-ATCC (~10.4h train) + ATCOSIM (~8h train), both free.
+  Hold out the free ATCO2-test-set-1h as an extra out-of-domain eval — it's
+  not from either training corpus.
+- Benchmark target, not a reproduction requirement: Zuluaga-Gomez et al.,
+  "How Does Pre-trained Wav2Vec 2.0 Perform on Domain Shifted ASR?" (IEEE SLT
+  2022, arXiv:2203.16822) fine-tuned `wav2vec2-large-960h-lv60-self` on this
+  same UWB-ATCC + ATCOSIM combination and reported ~10.5% WER on the joint
+  eval set, down from ~18-19% pre-fine-tune on the individual sets. Their run
+  used different hardware/hyperparameters and possibly LM rescoring for some
+  numbers — treat this as a sanity-check ballpark, not a pass/fail bar.
