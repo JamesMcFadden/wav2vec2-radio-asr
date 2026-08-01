@@ -1,0 +1,27 @@
+# Data and model artifacts -- never commit these.
+# LibriSpeech is ~60 GB for the full 960h set and re-downloads via `datasets`.
+# Checkpoints belong on the HuggingFace Hub, not in git (and not in Git LFS:
+# the free tier is 1 GB storage / 1 GB bandwidth per month).
+data/
+outputs/
+checkpoints/
+runs/
+wandb/
+*.pt
+*.bin
+*.safetensors
+*.wav
+*.flac
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# macOS
+.DS_Store
