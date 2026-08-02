@@ -56,6 +56,18 @@ These are all things that have already cost time here:
   the MPS fallback dispatch key reads that env var once at torch's static init,
   not per-call. Setting it later (e.g. inside `finetune.py`'s `main()`) is too
   late and the error comes back.
+- **Load and `.map()` the dataset before touching CUDA, not after.**
+  `datasets.map()` forks a worker subprocess even at `num_proc=1`. Forking a
+  process that has already initialized a CUDA context (e.g. via
+  `pick_device()`'s `torch.cuda.is_available()`, or loading a model onto the
+  GPU) reliably deadlocks the child — it hangs at 0% progress indefinitely,
+  burning near-zero CPU, with no exception raised. `finetune.py`'s `main()`
+  does all data loading and `.map()` calls first and only calls
+  `pick_device()`/`build_model()` afterward; don't reorder that. Confirmed by
+  running the identical `.map()` call in isolation (no CUDA touched) vs. after
+  `pick_device()` — only the latter hangs. `py-spy` cannot diagnose this
+  directly in a RunPod pod: ptrace is blocked (`Permission denied`) even as
+  root.
 
 ## Environment
 

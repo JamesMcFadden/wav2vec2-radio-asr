@@ -18,6 +18,12 @@ Before a real run, sanity-check the harness by overfitting 8 samples:
 CTC emits empty strings for the first few hundred steps -- expected, not a
 bug. Still blank well past that on 8 samples means the LR or blank-token
 config is wrong, not the data or model.
+
+Re-running against the same --output-dir resumes from the latest checkpoint
+automatically -- relevant on a rented GPU that can be reclaimed mid-run
+(e.g. a Vast.ai interruptible instance). Point --output-dir at a network
+volume that outlives the pod if you want that to actually survive a
+reclaim; a container's local disk does not.
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ from transformers import (
     Wav2Vec2ForCTC,
     Wav2Vec2Processor,
 )
+from transformers.trainer_utils import get_last_checkpoint
 
 # Any import of this module first runs asr/__init__.py, which sets
 # PYTORCH_ENABLE_MPS_FALLBACK before its own imports pull in torch -- see the
@@ -117,19 +124,8 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    device = pick_device(args.device)
-    if device.type == "mps":
-        # aten::_ctc_loss has no MPS kernel -- torch raises NotImplementedError,
-        # not just slow/unstable results. PYTORCH_ENABLE_MPS_FALLBACK (set at
-        # import time, above) routes that one op to CPU, which is what makes
-        # the local --dummy smoke test runnable at all. A real run belongs on
-        # CUDA (rented GPU/Colab), where ctc_loss is native.
-        print("note   : aten::_ctc_loss has no MPS kernel; that op falls back to CPU")
     print(f"model  : {args.model}")
-    print(f"device : {device}")
-
     processor = build_processor(output_dir)
-    model = build_model(args.model, processor)
 
     print("loading data...")
     train_dataset = load_finetune_train(max_samples_per_corpus=args.max_train_samples)
@@ -137,6 +133,11 @@ def main() -> None:
     print(f"train  : {len(train_dataset)} utterances (ATCOSIM + UWB-ATCC)")
     print(f"eval   : {len(eval_dataset)} utterances (ATCO2-test-set-1h, held out)")
 
+    # dataset.map() spawns a worker subprocess even at num_proc=1. Forking a
+    # process after CUDA has been initialized in the parent reliably deadlocks
+    # the child (a well-known PyTorch + multiprocessing + fork hazard) -- so
+    # every map() call has to happen before pick_device()/build_model() below
+    # ever touch torch.cuda, not after.
     print("preparing features (this decodes and extracts every utterance once)...")
     train_dataset = train_dataset.map(
         prepare_example,
@@ -152,6 +153,18 @@ def main() -> None:
         num_proc=args.num_proc,
         desc="eval",
     )
+
+    device = pick_device(args.device)
+    if device.type == "mps":
+        # aten::_ctc_loss has no MPS kernel -- torch raises NotImplementedError,
+        # not just slow/unstable results. PYTORCH_ENABLE_MPS_FALLBACK (set at
+        # import time, above) routes that one op to CPU, which is what makes
+        # the local --dummy smoke test runnable at all. A real run belongs on
+        # CUDA (rented GPU/Colab), where ctc_loss is native.
+        print("note   : aten::_ctc_loss has no MPS kernel; that op falls back to CPU")
+    print(f"device : {device}")
+
+    model = build_model(args.model, processor)
 
     training_args = TrainingArguments(
         output_dir=str(output_dir),
@@ -182,7 +195,10 @@ def main() -> None:
         processing_class=processor,
     )
 
-    trainer.train()
+    last_checkpoint = get_last_checkpoint(str(output_dir))
+    if last_checkpoint:
+        print(f"resuming from {last_checkpoint}")
+    trainer.train(resume_from_checkpoint=last_checkpoint)
 
     print("\nfinal eval:")
     print(trainer.evaluate())
