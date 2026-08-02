@@ -7,17 +7,17 @@ from the Hub, so the core tests need no network and run in well under a second.
 from __future__ import annotations
 
 import json
-import string
 
 import pytest
 from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
+
+from asr.vocab import CTC_VOCAB
 
 
 @pytest.fixture(scope="session")
 def vocab() -> dict[str, int]:
     """wav2vec2's CTC vocabulary: blank first, then the delimiter and characters."""
-    tokens = ["<pad>", "<s>", "</s>", "<unk>", "|", *string.ascii_uppercase, "'"]
-    return {token: index for index, token in enumerate(tokens)}
+    return CTC_VOCAB
 
 
 @pytest.fixture(scope="session")

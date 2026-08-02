@@ -21,9 +21,12 @@ than clean studio speech like LibriSpeech.
 
 1. **Baseline (done):** validate the CTC evaluation pipeline against a known
    reference number on LibriSpeech, using `facebook/wav2vec2-base-960h`.
-2. **Fine-tuning (in progress):** fine-tune wav2vec2 on ATC audio to
-   demonstrate the pipeline handles a genuine domain shift, not just a clean
-   read-speech corpus.
+2. **Fine-tuning (implemented, not yet run to completion):** fine-tune
+   wav2vec2 on ATC audio to demonstrate the pipeline handles a genuine domain
+   shift, not just a clean read-speech corpus. The training script
+   (`asr.finetune`) is done and smoke-tested; a full run needs a real GPU (see
+   [Fine-tuning](#fine-tuning) below) and hasn't been executed yet, so there
+   are no fine-tuned WER numbers in this README yet.
 
 ## Setup
 
@@ -105,10 +108,20 @@ uv run ruff check . && uv run ruff format .
 
 ## Fine-tuning
 
-Not implemented yet. When it lands it will start from `facebook/wav2vec2-base`,
-build a character vocabulary, and freeze the feature encoder. Note that MPS
-training is slow and CTC loss on MPS has historically been unstable — a rented
-GPU or Colab is the realistic path for a full run.
+```bash
+# Sanity-check the harness first: overfit 8 samples per corpus
+uv run python -m asr.finetune --dummy --epochs 100 --batch-size 8
+
+# Real run
+uv run python -m asr.finetune
+```
+
+Starts from `facebook/wav2vec2-base`, builds a character vocabulary, and
+freezes the feature encoder before training with `transformers.Trainer`.
+
+MPS has no kernel for `aten::_ctc_loss` at all, so that op falls back to CPU
+automatically (see `asr/__init__.py`) — workable for the `--dummy` smoke test,
+but a rented GPU or Colab is the realistic path for a full run.
 
 **Data:** [UWB-ATCC](https://lindat.mff.cuni.cz/repository/xmlui/handle/11858/00-097C-0000-0001-CCA1-0) (~10.4h train) +
 [ATCOSIM](https://www.spsc.tugraz.at/databases-and-tools/atcosim-air-traffic-control-simulation-speech-corpus.html)

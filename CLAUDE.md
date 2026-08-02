@@ -50,13 +50,21 @@ These are all things that have already cost time here:
 - **Keep this repo out of iCloud-synced folders** (`~/Documents`, `~/Desktop`).
   iCloud sets `UF_HIDDEN` on files there, and Python ≥3.11 silently skips hidden
   `.pth` files, which breaks the editable install with a bare `ModuleNotFoundError`.
+- **`aten::_ctc_loss` has no MPS kernel at all** — a hard `NotImplementedError`,
+  not just instability. `asr/__init__.py` sets `PYTORCH_ENABLE_MPS_FALLBACK=1`
+  as its first statement, before any of its own imports pull in torch, because
+  the MPS fallback dispatch key reads that env var once at torch's static init,
+  not per-call. Setting it later (e.g. inside `finetune.py`'s `main()`) is too
+  late and the error comes back.
 
 ## Environment
 
 - macOS, Apple Silicon. Device is **MPS**, not CUDA. No `.cuda()`, no bf16.
 - `uv` manages Python 3.12 and the venv. Use `uv run <cmd>`, not bare `python`.
-- Training on MPS is slow and CTC loss there has historically been unstable.
-  Prefer Colab or a rented GPU for real fine-tuning runs.
+- Training on MPS is slow, and the CTC loss op specifically falls back to CPU
+  (see the `aten::_ctc_loss` constraint above) — fine for the `--dummy`
+  smoke test, not for a real run. Use Colab or a rented GPU for that; CUDA has
+  a native `ctc_loss` kernel.
 
 ## Data
 
@@ -68,13 +76,17 @@ These are all things that have already cost time here:
 - Cache stays in the `datasets` default cache. `data/` and `outputs/` are
   gitignored — never commit audio or checkpoints.
 
-## Fine-tuning, when we get there
+## Fine-tuning
 
-- Start from `facebook/wav2vec2-base` (no CTC head) and build a char vocab.
-- Call `model.freeze_feature_encoder()`.
-- Overfit 8 samples to ~100% train accuracy first. CTC emits empty strings for
-  the first few hundred steps — that is expected, not a bug. Still blank after
-  ~500 steps on 8 samples means the LR or blank-token config is wrong.
+Implemented in `asr/finetune.py`. `facebook/wav2vec2-base` (no CTC head) plus
+the fixed vocab in `asr/vocab.py`, `model.freeze_feature_encoder()`, trained
+with `transformers.Trainer`.
+
+- Overfit 8 samples to ~100% train accuracy first:
+  `uv run python -m asr.finetune --dummy --epochs 100 --batch-size 8`. CTC
+  emits empty strings for the first few hundred steps — that is expected, not
+  a bug. Still blank well past that means the LR or blank-token config is
+  wrong.
 - Training data: UWB-ATCC (~10.4h train) + ATCOSIM (~8h train), both free.
   Hold out the free ATCO2-test-set-1h as an extra out-of-domain eval — it's
   not from either training corpus.
