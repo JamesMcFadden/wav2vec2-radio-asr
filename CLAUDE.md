@@ -68,6 +68,19 @@ These are all things that have already cost time here:
   `pick_device()` — only the latter hangs. `py-spy` cannot diagnose this
   directly in a RunPod pod: ptrace is blocked (`Permission denied`) even as
   root.
+- **Don't use `load_best_model_at_end` for CTC fine-tuning at all.** Neither
+  `metric_for_best_model="wer"` nor `"loss"` is safe: WER is coarse and
+  readily ties across epochs (pinning whichever checkpoint hit the tied
+  value first, since `Trainer` only updates "best" on a *strict*
+  improvement), and CTC's `eval_loss` can silently diverge from `eval_wer`
+  entirely -- loss can rise for many epochs while greedy-decoded WER keeps
+  improving, because loss scores the full alignment distribution while WER
+  only scores the single argmax path. Either metric has, in practice,
+  caused `trainer.save_model("final")` to silently save a worse,
+  non-final checkpoint with no error. `finetune.py` instead always keeps the
+  literal last-step checkpoint and prints the best-by-`eval_wer` epoch from
+  the log history as an informational reminder, not an automatic swap. See
+  `FINETUNE_DEBUG_LOG.md`, 2026-08-03 and 2026-08-04.
 
 ## Environment
 

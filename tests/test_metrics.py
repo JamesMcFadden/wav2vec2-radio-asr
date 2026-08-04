@@ -38,18 +38,41 @@ def test_length_mismatch_raises():
         compute_wer(["A", "B"], ["A"])
 
 
-def test_greedy_decode_collapses_repeats_and_blanks(processor, vocab):
-    """CTC emissions repeat characters and interleave blanks; decoding undoes both."""
-    # H E E <pad> L L <pad> L O  ->  "HELLO"
-    emission = ["H", "E", "E", "<pad>", "L", "L", "<pad>", "L", "O"]
+def _logits_for(emission: list[str], vocab: dict[str, int]) -> torch.Tensor:
     ids = [vocab[token] for token in emission]
-
     logits = torch.full((1, len(ids), len(vocab)), -10.0)
     for position, token_id in enumerate(ids):
         logits[0, position, token_id] = 10.0
+    return logits
+
+
+def test_greedy_decode_collapses_repeats_and_blanks(processor, vocab):
+    """CTC emissions repeat characters and interleave blanks; decoding undoes both."""
+    # H E E <pad> L L <pad> L O  ->  "HELLO"
+    logits = _logits_for(["H", "E", "E", "<pad>", "L", "L", "<pad>", "L", "O"], vocab)
 
     assert greedy_decode(logits, processor) == ["HELLO"]
     assert greedy_decode(logits.numpy(), processor) == ["HELLO"]
+
+
+def test_greedy_decode_strips_bos_eos(processor, vocab):
+    """An undertrained model readily predicts <s>/</s>; they must not leak
+    into decoded text (see the regression test below for why the naive fix,
+    skip_special_tokens=True, is wrong)."""
+    logits = _logits_for(["<s>", "H", "</s>", "I", "<s>"], vocab)
+
+    assert greedy_decode(logits, processor) == ["HI"]
+
+
+def test_greedy_decode_bos_eos_removal_preserves_blank_separated_repeats(processor, vocab):
+    """Regression test: skip_special_tokens=True also strips <pad> (the CTC
+    blank), which merges blank-separated repeats that must stay distinct --
+    "HELLO" would silently become "HELO". bos/eos removal must not do that."""
+    logits = _logits_for(
+        ["<s>", "H", "E", "E", "<pad>", "L", "L", "<pad>", "L", "O", "</s>"], vocab
+    )
+
+    assert greedy_decode(logits, processor) == ["HELLO"]
 
 
 def test_greedy_decode_accepts_numpy_and_torch_identically(processor, vocab):

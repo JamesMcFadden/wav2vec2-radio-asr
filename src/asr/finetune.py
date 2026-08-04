@@ -179,9 +179,16 @@ def main() -> None:
         weight_decay=0.005,
         logging_steps=10,
         report_to=[],
-        load_best_model_at_end=True,
-        metric_for_best_model="wer",
-        greater_is_better=False,
+        # Deliberately not load_best_model_at_end: for CTC, eval_loss and
+        # eval_wer can silently diverge (loss keeps rising some epochs while
+        # greedy-decoded WER keeps improving), and eval_wer itself can tie
+        # across epochs (e.g. stuck at 1.0 while undertrained). Either one
+        # as metric_for_best_model has, in practice, caused Trainer to pin a
+        # worse, non-final checkpoint into `final/` with no error -- see
+        # FINETUNE_DEBUG_LOG.md, 2026-08-03/04. Always keep the actual last
+        # checkpoint instead; report_best_epoch below prints the best-by-wer
+        # epoch from the log history so a better checkpoint can still be
+        # picked manually if the run regressed late.
         use_cpu=(device.type == "cpu"),
     )
 
@@ -202,6 +209,17 @@ def main() -> None:
 
     print("\nfinal eval:")
     print(trainer.evaluate())
+
+    wer_history = [
+        (entry["epoch"], entry["eval_wer"])
+        for entry in trainer.state.log_history
+        if "eval_wer" in entry
+    ]
+    if wer_history:
+        best_epoch, best_wer = min(wer_history, key=lambda pair: pair[1])
+        print(f"\nbest eval_wer over the run: {best_wer:.4f} at epoch {best_epoch}")
+        print("(final/ below is the last-step model, not necessarily this one --")
+        print(" reload the matching checkpoint-N/ directory if it's meaningfully better)")
 
     trainer.save_model(str(output_dir / "final"))
     processor.save_pretrained(str(output_dir / "final"))

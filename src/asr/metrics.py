@@ -12,11 +12,33 @@ from .collator import LABEL_PAD_ID
 
 
 def greedy_decode(logits: torch.Tensor | np.ndarray, processor: Any) -> list[str]:
-    """Argmax over the vocabulary, then collapse CTC repeats and blanks."""
+    """Argmax over the vocabulary, then collapse CTC repeats and blanks.
+
+    ``<s>``/``</s>`` aren't suppressed from the model's output distribution
+    during training, so an undertrained model readily predicts them, and they
+    decode as literal text if left alone. The tempting fix,
+    ``batch_decode(..., skip_special_tokens=True)``, is wrong: ``<pad>`` (the
+    CTC blank) is *also* a "special token", and stripping it before the
+    CTC-aware repeat-collapse step corrupts genuine double letters --
+    "H E E <pad> L L <pad> L O" decodes to "HELO", not "HELLO". Remapping
+    bos/eos ids to the pad id first sidesteps this: the existing CTC decode
+    logic already drops blank correctly, so this removes the noise without
+    touching real repeat/blank disambiguation. ``<unk>`` is left as-is --
+    unlike bos/eos it's a meaningful signal (the model was genuinely unsure).
+    """
+    tokenizer = processor.tokenizer
     if isinstance(logits, torch.Tensor):
         predicted_ids = logits.argmax(dim=-1)
+        for special_id in (tokenizer.bos_token_id, tokenizer.eos_token_id):
+            predicted_ids = predicted_ids.masked_fill(
+                predicted_ids == special_id, tokenizer.pad_token_id
+            )
     else:
         predicted_ids = np.argmax(logits, axis=-1)
+        for special_id in (tokenizer.bos_token_id, tokenizer.eos_token_id):
+            predicted_ids = np.where(
+                predicted_ids == special_id, tokenizer.pad_token_id, predicted_ids
+            )
     return processor.batch_decode(predicted_ids)
 
 
